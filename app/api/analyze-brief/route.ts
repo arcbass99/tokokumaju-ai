@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGeminiClient, getGeminiModel } from "@/lib/gemini";
 import { buildAnalyzeBriefPrompt } from "@/lib/prompt-builders";
+import { checkRateLimit } from "@/lib/rate-limit";
 import type { AIStrategy, BusinessBrief } from "@/lib/schemas";
 
 export const runtime = "nodejs";
@@ -33,13 +34,8 @@ function parseGeminiJson(text: string) {
 }
 
 function getSafeErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  if (typeof error === "string") {
-    return error;
-  }
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
 
   try {
     return JSON.stringify(error);
@@ -52,6 +48,27 @@ export async function POST(request: NextRequest) {
   const model = getGeminiModel();
 
   try {
+    const rateLimit = await checkRateLimit(request, "analyze-brief");
+
+    if (!rateLimit.success) {
+      return NextResponse.json(
+        {
+          error: "Terlalu banyak request.",
+          detail:
+            "AI Strategist sedang dibatasi agar kuota demo tetap aman. Coba lagi beberapa menit lagi.",
+          reset: rateLimit.reset,
+        },
+        {
+          status: 429,
+          headers: {
+            "X-RateLimit-Limit": String(rateLimit.limit),
+            "X-RateLimit-Remaining": String(rateLimit.remaining),
+            "X-RateLimit-Reset": String(rateLimit.reset),
+          },
+        }
+      );
+    }
+
     const brief = (await request.json()) as BusinessBrief;
 
     if (
@@ -62,8 +79,9 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         {
-          error:
-            "Brief belum lengkap. Nama usaha, kategori, produk/jasa unggulan, dan WhatsApp wajib diisi.",
+          error: "Brief belum lengkap.",
+          detail:
+            "Nama usaha, kategori, produk/jasa unggulan, dan WhatsApp wajib diisi.",
         },
         { status: 400 }
       );
@@ -140,7 +158,7 @@ export async function POST(request: NextRequest) {
         detail,
         model,
         hint:
-          "Cek .env.local, pastikan GEMINI_API_KEY benar, restart npm run dev setelah mengubah env, dan pastikan model tersedia untuk API key kamu.",
+          "Cek GEMINI_API_KEY, GEMINI_MODEL, UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN, quota, koneksi, atau format input.",
       },
       { status: 500 }
     );

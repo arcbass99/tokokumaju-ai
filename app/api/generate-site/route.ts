@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGeminiClient, getGeminiModel } from "@/lib/gemini";
 import { buildGenerateSitePrompt } from "@/lib/prompt-builders";
+import { checkRateLimit } from "@/lib/rate-limit";
 import type { AIStrategy, BusinessBrief, GeneratedSite } from "@/lib/schemas";
 
 export const runtime = "nodejs";
@@ -9,6 +10,16 @@ function isValidGeneratedSite(value: unknown): value is GeneratedSite {
   if (!value || typeof value !== "object") return false;
 
   const data = value as Partial<GeneratedSite>;
+
+  if (
+    !data.brandStrategy ||
+    !data.designTokens ||
+    !data.sections ||
+    !data.marketingCopy ||
+    !data.qualityScore
+  ) {
+    return false;
+  }
 
   return (
     typeof data.brandStrategy === "object" &&
@@ -44,6 +55,27 @@ export async function POST(request: NextRequest) {
   const model = getGeminiModel();
 
   try {
+    const rateLimit = await checkRateLimit(request, "generate-site");
+
+    if (!rateLimit.success) {
+      return NextResponse.json(
+        {
+          error: "Terlalu banyak request.",
+          detail:
+            "Generator website sedang dibatasi agar kuota demo tetap aman. Coba lagi beberapa menit lagi.",
+          reset: rateLimit.reset,
+        },
+        {
+          status: 429,
+          headers: {
+            "X-RateLimit-Limit": String(rateLimit.limit),
+            "X-RateLimit-Remaining": String(rateLimit.remaining),
+            "X-RateLimit-Reset": String(rateLimit.reset),
+          },
+        }
+      );
+    }
+
     const body = (await request.json()) as {
       brief?: BusinessBrief;
       strategy?: AIStrategy;
@@ -56,6 +88,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: "Brief dan strategy wajib dikirim.",
+          detail:
+            "Endpoint generate-site membutuhkan body berisi brief dan strategy.",
         },
         { status: 400 }
       );
@@ -69,8 +103,25 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         {
-          error:
-            "Brief belum lengkap. Nama usaha, kategori, produk/jasa unggulan, dan WhatsApp wajib diisi.",
+          error: "Brief belum lengkap.",
+          detail:
+            "Nama usaha, kategori, produk/jasa unggulan, dan WhatsApp wajib diisi.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      !strategy.positioning?.trim() ||
+      !strategy.targetAudience?.trim() ||
+      !strategy.valueProposition?.trim() ||
+      !strategy.mainCTA?.trim()
+    ) {
+      return NextResponse.json(
+        {
+          error: "Strategy belum lengkap.",
+          detail:
+            "Strategy wajib punya positioning, targetAudience, valueProposition, dan mainCTA.",
         },
         { status: 400 }
       );
@@ -147,7 +198,7 @@ export async function POST(request: NextRequest) {
         detail,
         model,
         hint:
-          "Cek API key, model Gemini, quota, koneksi, atau format brief/strategy.",
+          "Cek GEMINI_API_KEY, GEMINI_MODEL, UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN, quota, koneksi, atau format brief/strategy.",
       },
       { status: 500 }
     );
