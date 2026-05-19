@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { AIStrategy, BusinessBrief } from "@/lib/schemas";
 import { Button } from "@/components/ui/Button";
 import { StrategyCard } from "@/components/strategy/StrategyCard";
+import { FallbackNotice } from "@/components/ui/FallbackNotice";
 
 const BRIEF_STORAGE_KEY = "tokokumaju.businessBrief";
 const STRATEGY_STORAGE_KEY = "tokokumaju.aiStrategy";
@@ -23,7 +24,11 @@ export function StrategyReview() {
   const router = useRouter();
 
   const [brief, setBrief] = useState<BusinessBrief | null>(null);
-  const [strategy, setStrategy] = useState<AIStrategy | null>(null);
+    type StrategyWithMeta = AIStrategy & {
+    _fallback?: boolean;
+  };
+
+  const [strategy, setStrategy] = useState<StrategyWithMeta | null>(null);
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [errorInfo, setErrorInfo] = useState<ApiErrorResponse | null>(null);
 
@@ -41,7 +46,7 @@ export function StrategyReview() {
       setBrief(parsedBrief);
 
       if (savedStrategy) {
-        const parsedStrategy = JSON.parse(savedStrategy) as AIStrategy;
+        const parsedStrategy = JSON.parse(savedStrategy) as StrategyWithMeta;
         setStrategy(parsedStrategy);
         setRequestState("success");
         return;
@@ -78,7 +83,7 @@ export function StrategyReview() {
         throw data;
       }
 
-      const nextStrategy = data as AIStrategy;
+      const nextStrategy = data as StrategyWithMeta;
 
       window.localStorage.setItem(
         STRATEGY_STORAGE_KEY,
@@ -259,6 +264,13 @@ export function StrategyReview() {
       </section>
 
       {requestState === "loading" ? <StrategySkeleton /> : null}
+
+            {strategy?._fallback ? (
+        <FallbackNotice
+          title="Demo tetap berjalan dengan hasil cadangan"
+          description="Gemini sedang ramai atau kuota sementara terbatas. Untuk demo Kue Rina Homemade, TokokuMaju AI memakai strategi cadangan agar alur tetap bisa dicoba."
+        />
+      ) : null}
 
       {strategy ? <StrategyResult strategy={strategy} /> : null}
     </div>

@@ -179,13 +179,11 @@ export const kueRinaDemoGeneratedSite: GeneratedSite = {
       },
       {
         question: "Apakah bisa pre-order?",
-        answer:
-          "Bisa. Untuk pesanan khusus, sebaiknya pesan minimal H-2.",
+        answer: "Bisa. Untuk pesanan khusus, sebaiknya pesan minimal H-2.",
       },
       {
         question: "Bagaimana cara memesan?",
-        answer:
-          "Pesanan bisa dilakukan langsung melalui WhatsApp.",
+        answer: "Pesanan bisa dilakukan langsung melalui WhatsApp.",
       },
     ],
     alternativeTaglines: [

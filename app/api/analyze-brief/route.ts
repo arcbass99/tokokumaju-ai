@@ -37,13 +37,37 @@ function parseGeminiJson(text: string) {
 
 export async function POST(request: NextRequest) {
   const model = getGeminiModel();
-
   let brief: BusinessBrief | null = null;
 
   try {
+    brief = (await request.json()) as BusinessBrief;
+
+    if (
+      !brief.businessName?.trim() ||
+      !brief.category?.trim() ||
+      !brief.featuredProducts?.trim() ||
+      !brief.whatsapp?.trim()
+    ) {
+      return NextResponse.json(
+        {
+          error: "Brief belum lengkap.",
+          detail:
+            "Nama usaha, kategori, produk/jasa unggulan, dan WhatsApp wajib diisi.",
+        },
+        { status: 400 }
+      );
+    }
+
     const rateLimit = await checkRateLimit(request, "analyze-brief");
 
     if (!rateLimit.success) {
+      if (isDemoBriefName(brief.businessName)) {
+        return NextResponse.json({
+          ...kueRinaDemoStrategy,
+          _fallback: true,
+        });
+      }
+
       return NextResponse.json(
         {
           error: "Terlalu banyak request.",
@@ -61,24 +85,6 @@ export async function POST(request: NextRequest) {
             "X-RateLimit-Reset": String(rateLimit.reset),
           },
         }
-      );
-    }
-
-    brief = (await request.json()) as BusinessBrief;
-
-    if (
-      !brief.businessName?.trim() ||
-      !brief.category?.trim() ||
-      !brief.featuredProducts?.trim() ||
-      !brief.whatsapp?.trim()
-    ) {
-      return NextResponse.json(
-        {
-          error: "Brief belum lengkap.",
-          detail:
-            "Nama usaha, kategori, produk/jasa unggulan, dan WhatsApp wajib diisi.",
-        },
-        { status: 400 }
       );
     }
 

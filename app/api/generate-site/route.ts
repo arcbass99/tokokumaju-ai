@@ -44,33 +44,9 @@ function parseGeminiJson(text: string) {
 
 export async function POST(request: NextRequest) {
   const model = getGeminiModel();
-
   let brief: BusinessBrief | null = null;
 
   try {
-    const rateLimit = await checkRateLimit(request, "generate-site");
-
-    if (!rateLimit.success) {
-      return NextResponse.json(
-        {
-          error: "Terlalu banyak request.",
-          detail:
-            "Generator website sedang dibatasi agar kuota demo tetap aman. Coba lagi beberapa menit lagi.",
-          hint:
-            "Jika hasil website sudah pernah dibuat, refresh halaman tidak akan menghapusnya karena tersimpan di browser.",
-          reset: rateLimit.reset,
-        },
-        {
-          status: 429,
-          headers: {
-            "X-RateLimit-Limit": String(rateLimit.limit),
-            "X-RateLimit-Remaining": String(rateLimit.remaining),
-            "X-RateLimit-Reset": String(rateLimit.reset),
-          },
-        }
-      );
-    }
-
     const body = (await request.json()) as {
       brief?: BusinessBrief;
       strategy?: AIStrategy;
@@ -119,6 +95,36 @@ export async function POST(request: NextRequest) {
             "Strategy wajib punya positioning, targetAudience, valueProposition, dan mainCTA.",
         },
         { status: 400 }
+      );
+    }
+
+    const rateLimit = await checkRateLimit(request, "generate-site");
+
+    if (!rateLimit.success) {
+      if (isDemoBriefName(brief.businessName)) {
+        return NextResponse.json({
+          ...kueRinaDemoGeneratedSite,
+          _fallback: true,
+        });
+      }
+
+      return NextResponse.json(
+        {
+          error: "Terlalu banyak request.",
+          detail:
+            "Generator website sedang dibatasi agar kuota demo tetap aman. Coba lagi beberapa menit lagi.",
+          hint:
+            "Jika hasil website sudah pernah dibuat, refresh halaman tidak akan menghapusnya karena tersimpan di browser.",
+          reset: rateLimit.reset,
+        },
+        {
+          status: 429,
+          headers: {
+            "X-RateLimit-Limit": String(rateLimit.limit),
+            "X-RateLimit-Remaining": String(rateLimit.remaining),
+            "X-RateLimit-Reset": String(rateLimit.reset),
+          },
+        }
       );
     }
 

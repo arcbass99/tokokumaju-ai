@@ -88,18 +88,13 @@ export function classifyGeminiError(error: unknown): FriendlyGeminiError & {
   return {
     kind: "unknown",
     error: "AI gagal memproses permintaan.",
-    detail:
-      "Terjadi error yang belum dikenali saat menghubungi Gemini.",
-    hint:
-      "Coba lagi. Jika masih gagal, cek log server atau gunakan mode demo.",
+    detail: "Terjadi error yang belum dikenali saat menghubungi Gemini.",
+    hint: "Coba lagi. Jika masih gagal, cek log server atau gunakan mode demo.",
     retryable: true,
     raw,
   };
 }
 
 export function isDemoBriefName(value: string | undefined) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .includes("kue rina");
+  return String(value ?? "").trim().toLowerCase().includes("kue rina");
 }
