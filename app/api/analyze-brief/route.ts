@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getGeminiClient, getGeminiModel } from "@/lib/gemini";
 import { buildAnalyzeBriefPrompt } from "@/lib/prompt-builders";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { classifyGeminiError, isDemoBriefName } from "@/lib/gemini-error";
+import { kueRinaDemoStrategy } from "@/data/demo-results";
 import type { AIStrategy, BusinessBrief } from "@/lib/schemas";
 
 export const runtime = "nodejs";
@@ -33,19 +35,10 @@ function parseGeminiJson(text: string) {
   return JSON.parse(cleaned);
 }
 
-function getSafeErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return "Unknown error";
-  }
-}
-
 export async function POST(request: NextRequest) {
   const model = getGeminiModel();
+
+  let brief: BusinessBrief | null = null;
 
   try {
     const rateLimit = await checkRateLimit(request, "analyze-brief");
@@ -56,6 +49,8 @@ export async function POST(request: NextRequest) {
           error: "Terlalu banyak request.",
           detail:
             "AI Strategist sedang dibatasi agar kuota demo tetap aman. Coba lagi beberapa menit lagi.",
+          hint:
+            "Jika sedang mencoba demo, gunakan hasil yang sudah tersimpan atau tunggu sampai rate limit reset.",
           reset: rateLimit.reset,
         },
         {
@@ -69,7 +64,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const brief = (await request.json()) as BusinessBrief;
+    brief = (await request.json()) as BusinessBrief;
 
     if (
       !brief.businessName?.trim() ||
@@ -101,11 +96,20 @@ export async function POST(request: NextRequest) {
     const text = response.text;
 
     if (!text) {
+      if (isDemoBriefName(brief.businessName)) {
+        return NextResponse.json({
+          ...kueRinaDemoStrategy,
+          _fallback: true,
+        });
+      }
+
       return NextResponse.json(
         {
-          error: "Gemini tidak mengembalikan respons teks.",
+          error: "AI tidak mengembalikan respons.",
           detail:
-            "Respons kosong. Coba ulangi, ganti model, atau periksa status API key.",
+            "Gemini tidak mengembalikan teks analisis. Coba ulangi beberapa saat lagi.",
+          hint:
+            "Jika memakai free tier, kemungkinan model sedang sibuk atau kuota sedang terbatas.",
           model,
         },
         { status: 502 }
@@ -117,12 +121,20 @@ export async function POST(request: NextRequest) {
     try {
       parsed = parseGeminiJson(text);
     } catch {
+      if (isDemoBriefName(brief.businessName)) {
+        return NextResponse.json({
+          ...kueRinaDemoStrategy,
+          _fallback: true,
+        });
+      }
+
       return NextResponse.json(
         {
-          error: "Respons Gemini bukan JSON valid.",
+          error: "Respons AI tidak bisa dibaca.",
           detail:
-            "Model mengembalikan teks yang tidak bisa di-parse sebagai JSON.",
-          rawText: text.slice(0, 1200),
+            "Gemini mengembalikan respons yang bukan JSON valid. Coba lagi beberapa saat lagi.",
+          hint:
+            "Ini bisa terjadi saat model tidak mengikuti format output. Request berikutnya biasanya bisa berhasil.",
           model,
         },
         { status: 502 }
@@ -130,12 +142,20 @@ export async function POST(request: NextRequest) {
     }
 
     if (!isValidStrategy(parsed)) {
+      if (isDemoBriefName(brief.businessName)) {
+        return NextResponse.json({
+          ...kueRinaDemoStrategy,
+          _fallback: true,
+        });
+      }
+
       return NextResponse.json(
         {
-          error: "Respons Gemini tidak sesuai format AIStrategy.",
+          error: "Format respons AI belum sesuai.",
           detail:
-            "JSON berhasil dibaca, tetapi field wajib seperti positioning, targetAudience, valueProposition, atau array rekomendasi tidak lengkap.",
-          raw: parsed,
+            "Respons berhasil dibaca, tetapi struktur strateginya belum lengkap.",
+          hint:
+            "Coba ulangi request. Jika sering terjadi, prompt/schema perlu diperketat.",
           model,
         },
         { status: 502 }
@@ -144,23 +164,34 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(parsed);
   } catch (error) {
-    const detail = getSafeErrorMessage(error);
+    const friendly = classifyGeminiError(error);
 
     console.error("Analyze brief error:", {
       model,
-      detail,
-      error,
+      friendly,
+      raw: friendly.raw,
     });
+
+    if (
+      brief &&
+      isDemoBriefName(brief.businessName) &&
+      (friendly.kind === "high-demand" || friendly.kind === "quota-exceeded")
+    ) {
+      return NextResponse.json({
+        ...kueRinaDemoStrategy,
+        _fallback: true,
+      });
+    }
 
     return NextResponse.json(
       {
-        error: "Gagal menganalisis brief.",
-        detail,
+        error: friendly.error,
+        detail: friendly.detail,
+        hint: friendly.hint,
+        retryable: friendly.retryable,
         model,
-        hint:
-          "Cek GEMINI_API_KEY, GEMINI_MODEL, UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN, quota, koneksi, atau format input.",
       },
-      { status: 500 }
+      { status: friendly.kind === "quota-exceeded" ? 429 : 503 }
     );
   }
 }
